@@ -1,8 +1,9 @@
 import streamlit as st
 from utils import Standalone, Update, Alias, Setup, Transcribe
-import sys, os, io, re
+import sys, os, io, re, PyPDF2, re, tempfile
 from contextlib import redirect_stdout
 import streamlit_shadcn_ui as ui
+
 
 class Args:
     def __init__(self):
@@ -23,11 +24,48 @@ def fetch_available_models(standalone):
     )
     return gptmodels, localmodels, claudemodels, googlemodels
 
-def get_video_id(url):
-    # Extract video ID from URL
-    pattern = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
-    match = re.search(pattern, url)
-    return match.group(1) if match else None
+
+def convert_pdf_to_text(uploaded_files):
+    all_text = ""
+    for uploaded_file in uploaded_files:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = f"{tmpdir}/{uploaded_file.name}"
+            with open(file_path, 'wb') as f:
+                f.write(uploaded_file.getvalue())  # Save the uploaded file to the temp dir
+            with open(file_path, 'rb') as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                num_pages = len(pdf_reader.pages)
+                text = ''
+                for page_num in range(num_pages):
+                    page = pdf_reader.pages[page_num]
+                    if page.extract_text():
+                        text += page.extract_text() + " "
+
+                # Normalize whitespace and clean up text
+                text = re.sub(r'\s+', ' ', text).strip()
+
+                # Split text into chunks by sentences, respecting a maximum chunk size
+                sentences = re.split(r'(?<=[.!?]) +', text)  # split on spaces following sentence-ending punctuation
+                chunks = []
+                current_chunk = ""
+                for sentence in sentences:
+                    # Check if the current sentence plus the current chunk exceeds the limit
+                    if len(current_chunk) + len(sentence) + 1 < 1000:  # +1 for the space
+                        current_chunk += (sentence + " ").strip()
+                    else:
+                        # When the chunk exceeds 1000 characters, store it and start a new one
+                        chunks.append(current_chunk)
+                        current_chunk = sentence + " "
+                if current_chunk:  # Don't forget the last chunk!
+                    chunks.append(current_chunk)
+
+                all_text += " ".join(chunks) + " "
+
+    # Write the entire text to 'vault.txt'
+    with open("vault.txt", "w", encoding="utf-8") as vault_file:
+        vault_file.write(all_text.strip())
+
+    return all_text.strip()
 
 def main():
     st.set_page_config(
@@ -39,7 +77,7 @@ def main():
 
     st.title("Fabric")
 
-    tab = ui.tabs(options=['Main', 'YouTube', 'Settings'] , key="tabs", default_value="Main")
+    tab1, tab2 = st.tabs(["Main", "YouTube"])
 
     current_directory = os.path.dirname(os.path.realpath(__file__))
     config_directory = os.path.expanduser("~/.config/fabric")
@@ -102,11 +140,10 @@ def main():
         )
         top_p = st.slider("Top P", min_value=0.0, max_value=1.0, value=0.9, step=0.1)
 
-    if tab == "Main":
+    with tab1:
         user_input = st.chat_input(
             "Ask me any anything", max_chars=None, key="user_input"
         )
-
 
         if user_input:
             args.model = selected_model
@@ -125,12 +162,12 @@ def main():
                 with st.spinner("Generating response..."):
                     with redirect_stdout(output):
                         standalone.streamMessage(user_input, context="", host="")
-                response = output.getvalue()
+                m_response = output.getvalue()
 
                 # Display the response
-                st.write(response)
+                st.write(m_response)
 
-    elif tab == 'YouTube':
+    with tab2:
         url = st.text_input(label="URL", placeholder="Paste YouTube link here", key="url")
 
         pattern = r"(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})"
@@ -164,24 +201,14 @@ def main():
                         with st.spinner("Generating response..."):
                             with redirect_stdout(output):
                                 standalone.streamMessage(transcription, context="", host="")
-                        response = output.getvalue()
+                        yt_response = output.getvalue()
 
                         # Display the response
-                        st.write(response)
+                        st.write(yt_response)
                 else:
                     pass
             else:
                 st.error("Invalid YouTube link")
-
-    elif tab == 'Settings':
-        ui.badges(
-            badge_list=[
-                ("Fabric", "secondary"),
-                ("v1.4.0", "secondary"),
-                ("15.9k ⭐", "secondary")
-            ],
-            class_name="flex gap-4"
-        )
 
     update = Update()
     alias = Alias()
@@ -207,6 +234,14 @@ def main():
             except Exception as e:
                 st.error(f"Error: {e}")
 
+        ui.badges(
+            badge_list=[
+                ("Fabric", "secondary"),
+                ("v1.4.0", "secondary"),
+                ("16.4k ⭐", "secondary")
+            ],
+            class_name="flex gap-4 items-center"
+        )
 
 if __name__ == "__main__":
     main()
