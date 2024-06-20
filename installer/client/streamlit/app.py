@@ -25,48 +25,6 @@ def fetch_available_models(standalone):
     return gptmodels, localmodels, claudemodels, googlemodels
 
 
-def convert_pdf_to_text(uploaded_files):
-    all_text = ""
-    for uploaded_file in uploaded_files:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            file_path = f"{tmpdir}/{uploaded_file.name}"
-            with open(file_path, 'wb') as f:
-                f.write(uploaded_file.getvalue())  # Save the uploaded file to the temp dir
-            with open(file_path, 'rb') as pdf_file:
-                pdf_reader = PyPDF2.PdfReader(pdf_file)
-                num_pages = len(pdf_reader.pages)
-                text = ''
-                for page_num in range(num_pages):
-                    page = pdf_reader.pages[page_num]
-                    if page.extract_text():
-                        text += page.extract_text() + " "
-
-                # Normalize whitespace and clean up text
-                text = re.sub(r'\s+', ' ', text).strip()
-
-                # Split text into chunks by sentences, respecting a maximum chunk size
-                sentences = re.split(r'(?<=[.!?]) +', text)  # split on spaces following sentence-ending punctuation
-                chunks = []
-                current_chunk = ""
-                for sentence in sentences:
-                    # Check if the current sentence plus the current chunk exceeds the limit
-                    if len(current_chunk) + len(sentence) + 1 < 1000:  # +1 for the space
-                        current_chunk += (sentence + " ").strip()
-                    else:
-                        # When the chunk exceeds 1000 characters, store it and start a new one
-                        chunks.append(current_chunk)
-                        current_chunk = sentence + " "
-                if current_chunk:  # Don't forget the last chunk!
-                    chunks.append(current_chunk)
-
-                all_text += " ".join(chunks) + " "
-
-    # Write the entire text to 'vault.txt'
-    with open("vault.txt", "w", encoding="utf-8") as vault_file:
-        vault_file.write(all_text.strip())
-
-    return all_text.strip()
-
 def main():
     st.set_page_config(
         page_title="Fabric",
